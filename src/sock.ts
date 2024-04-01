@@ -8,12 +8,14 @@ createHttpServer(async (req, res) => {
 			case "/targets": {
 				res.setHeader("Content-Type", "application/json");
 				res.end(
-					JSON.stringify({
-						targets,
-						labels: {
-							job: "fpd",
+					JSON.stringify([
+						{
+							targets: [...targets],
+							labels: {
+								job: "fpd",
+							},
 						},
-					})
+					])
 				);
 				break;
 			}
