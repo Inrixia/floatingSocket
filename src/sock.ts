@@ -1,6 +1,8 @@
 import { createServer as createTCPServer } from "net";
 import { createServer as createHttpServer, type Server } from "http";
 
+import { WebSocketServer } from "ws";
+
 const instances: Record<string, string> = {};
 createHttpServer(async (req, res) => {
 	try {
@@ -42,23 +44,25 @@ enum ChangeType {
 	Ended = "Ended",
 	Error = "Error",
 }
-const tcpServer = createTCPServer(async (socket) => {
-	const instance: string = await new Promise((res) => socket.once("data", (data) => res(data.toString())));
+
+const webSocketPort = process.env.WEB_SOCKET_PORT || 5000;
+new WebSocketServer({ port: +webSocketPort }).on("connection", async (socket, req) => {
+	const instance: string = await new Promise((res) => socket.once("message", (data) => res(data.toString())));
 	const httpServer = createHttpServer(async (req, res) => {
 		try {
-			if (req.url !== "/metrics" || !socket.writable) {
+			if (req.url !== "/metrics" || !socket.OPEN) {
 				res.statusCode = 404;
 				res.end("Not found");
-				if (!socket.writable) {
+				if (!socket.OPEN) {
 					httpServer.close();
-					socket.destroy();
+					socket.close();
 				}
 			} else {
 				const data = new Promise<void>((res) => {
-					socket.once("data", res);
+					socket.once("message", res);
 					setTimeout(res, 3000);
 				});
-				socket.write(".");
+				socket.send(".");
 				res.setHeader("Content-Type", "text/plain; version=0.0.4; charset=utf-8");
 				res.end(await data);
 			}
@@ -67,22 +71,16 @@ const tcpServer = createTCPServer(async (socket) => {
 			res.end((<Error>err)?.message);
 		}
 	}).listen(0);
-
 	const { address, port } = serverAddress(httpServer);
-	const httpAddress = `${address}:${port}`;
-	const socketAddress = `${socket.remoteAddress}:${socket.remotePort}`;
 	const onChange = (type: ChangeType) => () => {
 		if (type !== ChangeType.Listening) {
-			if (!socket.destroyed) socket.destroy();
+			if (!socket.OPEN) socket.close();
 			if (httpServer.listening) httpServer.close();
 			delete instances[`floatingsocket:${port}`];
 		} else instances[`floatingsocket:${port}`] = instance;
-		console.log(`${type}: Client [${socketAddress}] <> HTTP [${httpAddress}]`);
+		console.log(`${type}: Client [${req.socket.remoteAddress}:${req.socket.remotePort}] <> HTTP [${address}:${port}]`);
 	};
 
 	httpServer.on("listening", onChange(ChangeType.Listening)).on("close", onChange(ChangeType.Closed)).on("error", onChange(ChangeType.Error));
 	socket.on("end", onChange(ChangeType.Ended)).on("error", onChange(ChangeType.Error));
 });
-
-const tcpPort = process.env.TCP_SOCKET_PORT || 5000;
-tcpServer.listen(tcpPort, () => console.log(`TCP Server listening on port ${tcpPort}`));
