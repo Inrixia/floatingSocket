@@ -53,11 +53,8 @@ const httpServer = createHttpServer(async (req, res) => {
 	}
 });
 
-const hostname = "127.0.0.1"; // Localhost
 const httpPort = 80;
-httpServer.listen(httpPort, hostname, () => {
-	console.log(`Server running at http://${hostname}:${httpPort}/`);
-});
+httpServer.listen(httpPort, () => console.log(`HTTP server listening on port ${httpPort}`));
 
 const tcpPort = 5000;
 tcpServer.listen(tcpPort, () => console.log(`TCP Server listening on port ${tcpPort}`));
