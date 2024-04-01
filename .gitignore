@@ -14,3 +14,4 @@ node_modules/
 
 # Typescript ignores
 dist/
+targets.json

@@ -1,67 +1,77 @@
 import { createServer as createTCPServer, type Socket } from "net";
-import { createServer as createHttpServer } from "http";
-import { AggregatorRegistry } from "prom-client";
+import { createServer as createHttpServer, type Server } from "http";
+import { writeFile } from "fs/promises";
 
-const tcpSockets = new Set<Socket>();
-const tcpServer = createTCPServer((socket) => {
-	tcpSockets.add(socket);
-	const socketAddress = `${socket.remoteAddress}:${socket.remotePort}`;
-	console.log(`Client ${socketAddress} connected!`);
-	socket.on("end", () => {
-		tcpSockets.delete(socket);
-		console.log(`Client ${socketAddress} disconnected.`);
-	});
-	socket.on("error", (err) => console.error(`Client ${socketAddress} socket error:`, err));
-});
-
-const socketRequestTimeout = 3000;
-const socketMetrics = async () => {
-	const results: Object[] = [];
-	for (const sock of tcpSockets) {
-		if (sock.writable) {
-			results.push(
-				new Promise<void>((res) => {
-					sock.once("data", (data) => {
-						try {
-							res(JSON.parse(data.toString()));
-						} catch {}
-					});
-					setTimeout(res, socketRequestTimeout);
-				})
-			);
-			sock.write(".");
-			continue;
-		}
-		tcpSockets.delete(sock);
+const httpPorts = new Set<number>();
+const updateTargets = () => {
+	const targets: string[] = [];
+	for (const httpPort of httpPorts) {
+		targets.push(`floatingsocket:${httpPort}`);
 	}
-	return AggregatorRegistry.aggregate((await Promise.all(results)).filter((result) => result !== undefined));
+	return writeFile(
+		"targets.json",
+		JSON.stringify({
+			targets,
+			labels: {
+				job: "fpd",
+			},
+		})
+	);
 };
 
-const httpServer = createHttpServer(async (req, res) => {
-	if (req.url === "/metrics") {
+const serverAddress = (httpServer: Server) => {
+	const address = httpServer.address();
+	if (address === null || typeof address === "string") throw new Error("Could not get address");
+	return address;
+};
+enum ChangeType {
+	Listening = "Listening",
+	Closed = "Closed",
+	Ended = "Ended",
+}
+const tcpServer = createTCPServer(async (socket) => {
+	const httpServer = createHttpServer(async (req, res) => {
 		try {
-			const register = await socketMetrics();
-			res.setHeader("Content-Type", register.contentType);
-			res.end(await register.metrics());
+			if (req.url !== "/metrics" || !socket.writable) {
+				res.statusCode = 404;
+				res.end("Not found");
+				if (!socket.writable) {
+					httpServer.close();
+					socket.destroy();
+				}
+			} else {
+				const data = new Promise<void>((res) => {
+					socket.once("data", res);
+					setTimeout(res, 3000);
+				});
+				socket.write(".");
+				res.setHeader("Content-Type", "text/plain; version=0.0.4; charset=utf-8");
+				res.end(await data);
+			}
 		} catch (err) {
 			res.statusCode = 500;
 			res.end((<Error>err)?.message);
 		}
-	} else {
-		res.statusCode = 404;
-		res.end("Not found");
-	}
-});
+	}).listen(0);
 
-const httpPort = 80;
-httpServer.listen(httpPort, () => console.log(`HTTP server listening on port ${httpPort}`));
+	const { address, port } = serverAddress(httpServer);
+	const httpAddress = `${address}:${port}`;
+	const socketAddress = `${socket.remoteAddress}:${socket.remotePort}`;
+	const onChange = (type: ChangeType) => () => {
+		if (type !== ChangeType.Listening) {
+			if (!socket.destroyed) socket.destroy();
+			if (httpServer.listening) httpServer.close();
+			httpPorts.delete(port);
+		} else httpPorts.add(port);
+		console.log(`${type}: Client [${socketAddress}] <> HTTP [${httpAddress}]`);
+		updateTargets();
+	};
+
+	httpServer.on("listening", onChange(ChangeType.Listening)).on("close", onChange(ChangeType.Closed));
+
+	socket.on("end", onChange(ChangeType.Ended));
+	socket.on("error", (err) => console.error(`Client ${socketAddress} socket error:`, err));
+});
 
 const tcpPort = 5000;
 tcpServer.listen(tcpPort, () => console.log(`TCP Server listening on port ${tcpPort}`));
-
-const gracefulShutdown = () => {
-	tcpServer.close();
-	httpServer.close();
-};
-process.on("SIGTERM", gracefulShutdown);
-process.on("SIGINT", gracefulShutdown);
