@@ -1,23 +1,33 @@
-import { createServer as createTCPServer, type Socket } from "net";
+import { createServer as createTCPServer } from "net";
 import { createServer as createHttpServer, type Server } from "http";
-import { writeFile } from "fs/promises";
 
-const httpPorts = new Set<number>();
-const updateTargets = () => {
-	const targets: string[] = [];
-	for (const httpPort of httpPorts) {
-		targets.push(`floatingsocket:${httpPort}`);
+const targets = new Set<string>();
+createHttpServer(async (req, res) => {
+	try {
+		switch (req.url) {
+			case "/targets": {
+				res.setHeader("Content-Type", "text/plain; version=0.0.4; charset=utf-8");
+				res.end(
+					JSON.stringify({
+						targets,
+						labels: {
+							job: "fpd",
+						},
+					})
+				);
+				break;
+			}
+			case "/metrics":
+			default: {
+				res.statusCode = 404;
+				res.end("Not found");
+			}
+		}
+	} catch (err) {
+		res.statusCode = 500;
+		res.end((<Error>err)?.message);
 	}
-	return writeFile(
-		"targets.json",
-		JSON.stringify({
-			targets,
-			labels: {
-				job: "fpd",
-			},
-		})
-	);
-};
+}).listen(process.env.SERVICE_DISCOVERY_PORT || 80);
 
 const serverAddress = (httpServer: Server) => {
 	const address = httpServer.address();
@@ -61,10 +71,9 @@ const tcpServer = createTCPServer(async (socket) => {
 		if (type !== ChangeType.Listening) {
 			if (!socket.destroyed) socket.destroy();
 			if (httpServer.listening) httpServer.close();
-			httpPorts.delete(port);
-		} else httpPorts.add(port);
+			targets.delete(`floatingsocket:${port}`);
+		} else targets.add(`floatingsocket:${port}`);
 		console.log(`${type}: Client [${socketAddress}] <> HTTP [${httpAddress}]`);
-		updateTargets();
 	};
 
 	httpServer.on("listening", onChange(ChangeType.Listening)).on("close", onChange(ChangeType.Closed));
@@ -73,5 +82,5 @@ const tcpServer = createTCPServer(async (socket) => {
 	socket.on("error", (err) => console.error(`Client ${socketAddress} socket error:`, err));
 });
 
-const tcpPort = 5000;
+const tcpPort = process.env.TCP_SOCKET_PORT || 5000;
 tcpServer.listen(tcpPort, () => console.log(`TCP Server listening on port ${tcpPort}`));
