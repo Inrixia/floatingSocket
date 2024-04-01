@@ -58,3 +58,10 @@ httpServer.listen(httpPort, () => console.log(`HTTP server listening on port ${h
 
 const tcpPort = 5000;
 tcpServer.listen(tcpPort, () => console.log(`TCP Server listening on port ${tcpPort}`));
+
+const gracefulShutdown = () => {
+	tcpServer.close();
+	httpServer.close();
+};
+process.on("SIGTERM", gracefulShutdown);
+process.on("SIGINT", gracefulShutdown);
