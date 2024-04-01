@@ -6,7 +6,7 @@ createHttpServer(async (req, res) => {
 	try {
 		switch (req.url) {
 			case "/targets": {
-				res.setHeader("Content-Type", "text/plain; version=0.0.4; charset=utf-8");
+				res.setHeader("Content-Type", "application/json");
 				res.end(
 					JSON.stringify({
 						targets,
