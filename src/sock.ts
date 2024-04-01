@@ -11,6 +11,9 @@ createHttpServer(async (req, res) => {
 					JSON.stringify([
 						{
 							targets: [...targets],
+							labels: {
+								instance: "floatingsocket",
+							},
 						},
 					])
 				);
