@@ -1,0 +1,18 @@
+{
+	"name": "floatysocket",
+	"version": "1.0.0",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"start": "tsc && node ./dist/sock.js",
+		"checkLint": "eslint ./src",
+		"lint": "eslint ./src --fix"
+	},
+	"devDependencies": {
+		"@types/node": "^20.12.2",
+		"typescript": "^5.4.3"
+	},
+	"dependencies": {
+		"prom-client": "^15.1.1"
+	}
+}
