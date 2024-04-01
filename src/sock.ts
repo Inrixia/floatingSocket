@@ -62,7 +62,7 @@ new WebSocketServer({ port: +webSocketPort }).on("connection", async (socket, re
 					socket.once("message", res);
 					setTimeout(res, 3000);
 				});
-				socket.send(".");
+				socket.ping();
 				res.setHeader("Content-Type", "text/plain; version=0.0.4; charset=utf-8");
 				res.end(await data);
 			}
@@ -72,15 +72,22 @@ new WebSocketServer({ port: +webSocketPort }).on("connection", async (socket, re
 		}
 	}).listen(0);
 	const { address, port } = serverAddress(httpServer);
+
+	const close = () => {
+		if (socket.readyState !== socket.OPEN) socket.close();
+		if (httpServer.listening) httpServer.close();
+		delete instances[`floatingsocket:${port}`];
+	};
 	const onChange = (type: ChangeType) => () => {
-		if (type !== ChangeType.Listening) {
-			if (!socket.OPEN) socket.close();
-			if (httpServer.listening) httpServer.close();
-			delete instances[`floatingsocket:${port}`];
-		} else instances[`floatingsocket:${port}`] = instance;
+		if (type !== ChangeType.Listening) close();
+		else instances[`floatingsocket:${port}`] = instance;
 		console.log(`${type}: Client [${req.socket.remoteAddress}:${req.socket.remotePort}] <> HTTP [${address}:${port}]`);
 	};
 
-	httpServer.on("listening", onChange(ChangeType.Listening)).on("close", onChange(ChangeType.Closed)).on("error", onChange(ChangeType.Error));
-	socket.on("end", onChange(ChangeType.Ended)).on("error", onChange(ChangeType.Error));
+	httpServer
+		.on("listening", onChange(ChangeType.Listening))
+		.on("close", onChange(ChangeType.Closed))
+		.on("error", onChange(ChangeType.Error))
+		.on("clientError", console.log);
+	socket.on("close", onChange(ChangeType.Closed)).on("error", onChange(ChangeType.Error));
 });
