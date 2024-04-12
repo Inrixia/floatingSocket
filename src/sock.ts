@@ -47,6 +47,7 @@ enum ChangeType {
 }
 
 const webSocketPort = process.env.WEB_SOCKET_PORT || 5000;
+const behindTunnel = process.env.BEHIND_TUNNEL === "true";
 new WebSocketServer({ port: +webSocketPort }).on("connection", async (socket, req) => {
 	const instance: string = await new Promise((res) => socket.once("message", (data) => res(data.toString())));
 	const httpServer = createHttpServer(async (req, res) => {
@@ -58,15 +59,10 @@ new WebSocketServer({ port: +webSocketPort }).on("connection", async (socket, re
 					socket.close();
 				}
 			} else {
-				const data = new Promise((res) => socket.once("message", res));
-				const timeout = new Promise((res, rej) => setTimeout(rej));
-
+				const data = new Promise<void>((res) => socket.once("message", res));
 				socket.ping();
-				const pingInterval = setInterval(socket.ping.bind(socket), 1000);
 				res.setHeader("Content-Type", "text/plain; version=0.0.4; charset=utf-8");
 				res.end(await data);
-				timeout.catch(() => null);
-				clearInterval(pingInterval);
 			}
 		} catch (err) {
 			res.statusCode = 500;
