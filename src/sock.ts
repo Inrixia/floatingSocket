@@ -62,6 +62,7 @@ new WebSocketServer({ port: +webSocketPort }).on("connection", async (socket, re
 					socket.once("message", res);
 					setTimeout(rej, 10000);
 				});
+				socket.ping();
 				const pingInterval = setInterval(socket.ping.bind(socket), 1000);
 				data.finally(() => clearInterval(pingInterval));
 				res.setHeader("Content-Type", "text/plain; version=0.0.4; charset=utf-8");
