@@ -65,18 +65,24 @@ new WebSocketServer({ port: +webSocketPort }).on("connection", async (socket, re
 					socket.close();
 				}
 			} else {
-				const data = new Promise<void>((res) => socket.once("message", res));
-				socket.ping();
-				const retryTimeout = setTimeout(() => socket.ping(), 1000); // Retry
-				const deadSocketTimeout = setTimeout(() => socket.close.bind(socket), 6000);
-				res.setHeader("Content-Type", "text/plain; version=0.0.4; charset=utf-8");
-				res.end(await data);
-				clearTimeout(deadSocketTimeout);
-				clearTimeout(retryTimeout);
+				await new Promise<void>((_res, _rej) => {
+					const deadSocketTimeout = setTimeout(() => _rej(socket.close.bind(socket)), 15000);
+					const retryTimeout = setTimeout(() => socket.ping(), 1000); // Retry
+					socket.once("message", (data) => {
+						clearTimeout(deadSocketTimeout);
+						clearTimeout(retryTimeout);
+						res.setHeader("Content-Type", "text/plain; version=0.0.4; charset=utf-8");
+						res.end(data);
+						_res();
+					});
+					socket.ping();
+				});
 			}
 		} catch (err) {
-			res.statusCode = 500;
-			res.end((<Error>err)?.message);
+			if (!res.closed) {
+				res.statusCode = 500;
+				res.end((<Error>err)?.message);
+			}
 		}
 	}).listen(0);
 	const { address, port } = serverAddress(httpServer);
