@@ -4,6 +4,7 @@ import { createHash } from "crypto";
 
 type InstanceInfo = {
 	instance: string;
+	instanceHash: string;
 	ip?: string;
 };
 const instances: Record<string, InstanceInfo> = {};
@@ -54,7 +55,7 @@ const hashString = (str: string) => {
 
 const webSocketPort = process.env.WEB_SOCKET_PORT || 5000;
 new WebSocketServer({ port: +webSocketPort }).on("connection", async (socket, req) => {
-	const instance: string = await new Promise((res) => socket.once("message", (data) => res(hashString(data.toString()))));
+	const instance: string = await new Promise((res) => socket.once("message", (data) => res(data.toString())));
 	const httpServer = createHttpServer(async (req, res) => {
 		try {
 			if (req.url !== "/metrics" || !socket.OPEN) {
@@ -84,7 +85,7 @@ new WebSocketServer({ port: +webSocketPort }).on("connection", async (socket, re
 	const onChange = (type: ChangeType) => () => {
 		const remoteAddress = req.headers["x-forwarded-for"]?.toString() ?? req.socket.remoteAddress;
 		if (type !== ChangeType.Listening) close();
-		else instances[`floatingsocket:${port}`] = { instance, ip: remoteAddress };
+		else instances[`floatingsocket:${port}`] = { instance, ip: remoteAddress, instanceHash: hashString(instance) };
 		console.log(`${type}: Client [${remoteAddress}:${req.socket.remotePort}] <> HTTP [${address}:${port}]`);
 	};
 
