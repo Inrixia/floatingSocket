@@ -67,8 +67,12 @@ new WebSocketServer({ port: +webSocketPort }).on("connection", async (socket, re
 			} else {
 				const data = new Promise<void>((res) => socket.once("message", res));
 				socket.ping();
+				const retryTimeout = setTimeout(() => socket.ping(), 1000); // Retry
+				const deadSocketTimeout = setTimeout(() => socket.close.bind(socket), 6000);
 				res.setHeader("Content-Type", "text/plain; version=0.0.4; charset=utf-8");
 				res.end(await data);
+				clearTimeout(deadSocketTimeout);
+				clearTimeout(retryTimeout);
 			}
 		} catch (err) {
 			res.statusCode = 500;
