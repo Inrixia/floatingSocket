@@ -1,6 +1,6 @@
 import { createServer as createHttpServer, type Server } from "http";
-
 import { WebSocketServer } from "ws";
+import { createHash } from "crypto";
 
 type InstanceInfo = {
 	instance: string;
@@ -46,10 +46,15 @@ enum ChangeType {
 	Error = "Error",
 }
 
+const hashString = (str: string) => {
+	const hash = createHash("md5");
+	hash.update(str);
+	return hash.digest("hex");
+};
+
 const webSocketPort = process.env.WEB_SOCKET_PORT || 5000;
-const behindTunnel = process.env.BEHIND_TUNNEL === "true";
 new WebSocketServer({ port: +webSocketPort }).on("connection", async (socket, req) => {
-	const instance: string = await new Promise((res) => socket.once("message", (data) => res(data.toString())));
+	const instance: string = await new Promise((res) => socket.once("message", (data) => res(hashString(data.toString()))));
 	const httpServer = createHttpServer(async (req, res) => {
 		try {
 			if (req.url !== "/metrics" || !socket.OPEN) {
