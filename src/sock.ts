@@ -47,7 +47,6 @@ enum ChangeType {
 }
 
 const webSocketPort = process.env.WEB_SOCKET_PORT || 5000;
-const behindTunnel = process.env.BEHIND_TUNNEL === "true";
 new WebSocketServer({ port: +webSocketPort }).on("connection", async (socket, req) => {
 	const instance: string = await new Promise((res) => socket.once("message", (data) => res(data.toString())));
 	const httpServer = createHttpServer(async (req, res) => {
@@ -81,7 +80,7 @@ new WebSocketServer({ port: +webSocketPort }).on("connection", async (socket, re
 		delete instances[`floatingsocket:${port}`];
 	};
 	const onChange = (type: ChangeType) => () => {
-		const remoteAddress = behindTunnel ? req.headers["x-forwarded-for"]?.toString() : req.socket.remoteAddress;
+		const remoteAddress = req.headers["x-forwarded-for"]?.toString() ?? req.socket.remoteAddress;
 		if (type !== ChangeType.Listening) close();
 		else instances[`floatingsocket:${port}`] = { instance, ip: remoteAddress };
 		console.log(`${type}: Client [${remoteAddress}:${req.socket.remotePort}] <> HTTP [${address}:${port}]`);
