@@ -1,9 +1,12 @@
-import { createServer as createTCPServer } from "net";
 import { createServer as createHttpServer, type Server } from "http";
 
 import { WebSocketServer } from "ws";
 
-const instances: Record<string, string> = {};
+type InstanceInfo = {
+	instance: string;
+	ip?: string;
+};
+const instances: Record<string, InstanceInfo> = {};
 createHttpServer(async (req, res) => {
 	try {
 		switch (req.url) {
@@ -13,9 +16,7 @@ createHttpServer(async (req, res) => {
 				for (const target in instances) {
 					targets.push({
 						targets: [target],
-						labels: {
-							instance: instances[target],
-						},
+						labels: instances[target],
 					});
 				}
 				res.end(JSON.stringify(targets));
@@ -46,23 +47,24 @@ enum ChangeType {
 }
 
 const webSocketPort = process.env.WEB_SOCKET_PORT || 5000;
+const behindTunnel = process.env.BEHIND_TUNNEL === "true";
 new WebSocketServer({ port: +webSocketPort }).on("connection", async (socket, req) => {
 	const instance: string = await new Promise((res) => socket.once("message", (data) => res(data.toString())));
 	const httpServer = createHttpServer(async (req, res) => {
 		try {
 			if (req.url !== "/metrics" || !socket.OPEN) {
 				res.statusCode = 404;
-				res.end("Not found");
 				if (!socket.OPEN) {
 					httpServer.close();
 					socket.close();
 				}
 			} else {
-				const data = new Promise<void>((res) => {
+				const data = new Promise<void>((res, rej) => {
 					socket.once("message", res);
-					setTimeout(res, 3000);
+					setTimeout(rej, 10000);
 				});
-				socket.ping();
+				const pingInterval = setInterval(socket.ping.bind(socket), 1000);
+				data.finally(() => clearInterval(pingInterval));
 				res.setHeader("Content-Type", "text/plain; version=0.0.4; charset=utf-8");
 				res.end(await data);
 			}
@@ -79,9 +81,10 @@ new WebSocketServer({ port: +webSocketPort }).on("connection", async (socket, re
 		delete instances[`floatingsocket:${port}`];
 	};
 	const onChange = (type: ChangeType) => () => {
+		const remoteAddress = behindTunnel ? req.headers["x-forwarded-for"]?.toString() : req.socket.remoteAddress;
 		if (type !== ChangeType.Listening) close();
-		else instances[`floatingsocket:${port}`] = instance;
-		console.log(`${type}: Client [${req.socket.remoteAddress}:${req.socket.remotePort}] <> HTTP [${address}:${port}]`);
+		else instances[`floatingsocket:${port}`] = { instance, ip: remoteAddress };
+		console.log(`${type}: Client [${remoteAddress}:${req.socket.remotePort}] <> HTTP [${address}:${port}]`);
 	};
 
 	httpServer
@@ -89,5 +92,9 @@ new WebSocketServer({ port: +webSocketPort }).on("connection", async (socket, re
 		.on("close", onChange(ChangeType.Closed))
 		.on("error", onChange(ChangeType.Error))
 		.on("clientError", console.log);
+
 	socket.on("close", onChange(ChangeType.Closed)).on("error", onChange(ChangeType.Error));
 });
+
+// Fix for docker
+process.on("SIGTERM", process.exit);
