@@ -55,8 +55,7 @@ const hashString = (str: string) => {
 
 const webSocketPort = process.env.WEB_SOCKET_PORT || 5000;
 new WebSocketServer({ port: +webSocketPort }).on("connection", async (socket, req) => {
-	const instance: string = await new Promise((res) => socket.once("message", (data) => res(data.toString())));
-	const httpServer = createHttpServer(async (req, res) => {
+	const httpServer = createHttpServer((req, res) => {
 		try {
 			if (req.url !== "/metrics" || !socket.OPEN) {
 				res.statusCode = 404;
@@ -65,18 +64,18 @@ new WebSocketServer({ port: +webSocketPort }).on("connection", async (socket, re
 					socket.close();
 				}
 			} else {
-				await new Promise<void>((_res, _rej) => {
-					const deadSocketTimeout = setTimeout(() => _rej(socket.close.bind(socket)), 15000);
-					const retryTimeout = setTimeout(() => socket.ping(), 1000); // Retry
-					socket.once("message", (data) => {
-						clearTimeout(deadSocketTimeout);
-						clearTimeout(retryTimeout);
-						res.setHeader("Content-Type", "text/plain; version=0.0.4; charset=utf-8");
-						res.end(data);
-						_res();
-					});
-					socket.ping();
+				const deadSocketTimeout = setTimeout(() => {
+					res.statusCode = 504;
+					res.end();
+					httpServer.close();
+					socket.close();
+				}, 4000);
+				socket.once("message", (data) => {
+					clearTimeout(deadSocketTimeout);
+					res.setHeader("Content-Type", "text/plain; version=0.0.4; charset=utf-8");
+					res.end(data);
 				});
+				socket.ping();
 			}
 		} catch (err) {
 			if (!res.closed) {
@@ -85,8 +84,9 @@ new WebSocketServer({ port: +webSocketPort }).on("connection", async (socket, re
 			}
 		}
 	}).listen(0);
-	const { address, port } = serverAddress(httpServer);
 
+	const instance: string = await new Promise((res) => socket.once("message", (data) => res(data.toString())));
+	const { address, port } = serverAddress(httpServer);
 	const close = () => {
 		if (socket.readyState !== socket.OPEN) socket.close();
 		if (httpServer.listening) httpServer.close();
@@ -103,7 +103,7 @@ new WebSocketServer({ port: +webSocketPort }).on("connection", async (socket, re
 		.on("listening", onChange(ChangeType.Listening))
 		.on("close", onChange(ChangeType.Closed))
 		.on("error", onChange(ChangeType.Error))
-		.on("clientError", console.log);
+		.on("clientError", console.error);
 
 	socket.on("close", onChange(ChangeType.Closed)).on("error", onChange(ChangeType.Error));
 });
