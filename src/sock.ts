@@ -55,6 +55,7 @@ const hashString = (str: string) => {
 
 const webSocketPort = process.env.WEB_SOCKET_PORT || 5000;
 new WebSocketServer({ port: +webSocketPort }).on("connection", async (socket, req) => {
+	const instance: string = await new Promise((res) => socket.once("message", (data) => res(data.toString())));
 	const httpServer = createHttpServer((req, res) => {
 		try {
 			if (req.url !== "/metrics" || !socket.OPEN) {
@@ -85,7 +86,6 @@ new WebSocketServer({ port: +webSocketPort }).on("connection", async (socket, re
 		}
 	}).listen(0);
 
-	const instance: string = await new Promise((res) => socket.once("message", (data) => res(data.toString())));
 	const { address, port } = serverAddress(httpServer);
 	const close = () => {
 		if (socket.readyState !== socket.OPEN) socket.close();
