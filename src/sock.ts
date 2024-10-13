@@ -91,7 +91,7 @@ new WebSocketServer({ port: +webSocketPort }).on("connection", async (socket, re
 		const ip = req.headers["x-forwarded-for"]?.toString() ?? req.socket.remoteAddress;
 		if (type === ChangeType.Listening) {
 			// Ensure the instance is only connected once
-			instances[instance]?.socket?.terminate();
+			// instances[instance]?.socket?.terminate(); Disabled to avoid reconnect thrashing
 			instances[instance] = { ip, socket, target: `floatingsocket:${port}` };
 		} else {
 			delete instances[instance];
