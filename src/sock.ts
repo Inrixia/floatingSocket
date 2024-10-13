@@ -51,14 +51,15 @@ enum ChangeType {
 }
 
 const webSocketPort = process.env.WEB_SOCKET_PORT || 5000;
-new WebSocketServer({ port: +webSocketPort }).on("connection", async (socket, req) => {
-	const instance: string = await new Promise((res) => socket.once("message", (data) => res(data.toString())));
-	if (instances[instance]) {
-		instances[instance].socket = socket;
+new WebSocketServer({ port: +webSocketPort }).on("connection", async (newSocket, req) => {
+	const instance: string = await new Promise((res) => newSocket.once("message", (data) => res(data.toString())));
+	if (instances[instance]?.socket) {
 		instances[instance].socket?.terminate();
+		instances[instance].socket = newSocket;
 	}
 
 	const httpServer = createHttpServer((req, res) => {
+		const socket = instances[instance]?.socket ?? newSocket;
 		try {
 			if (req.url !== "/metrics" || !socket.OPEN) {
 				res.statusCode = 404;
@@ -94,10 +95,10 @@ new WebSocketServer({ port: +webSocketPort }).on("connection", async (socket, re
 	const onChange = (type: ChangeType) => (err: Error) => {
 		const ip = req.headers["x-forwarded-for"]?.toString() ?? req.socket.remoteAddress;
 		if (type === ChangeType.Listening) {
-			instances[instance] = { ip, socket, target: `floatingsocket:${port}` };
+			instances[instance] = { ip, socket: newSocket, target: `floatingsocket:${port}` };
 		} else {
 			delete instances[instance];
-			if (socket.readyState !== socket.OPEN) socket.terminate();
+			if (newSocket.readyState !== newSocket.OPEN) newSocket.terminate();
 			if (httpServer.listening) httpServer.close();
 		}
 		console.log(`${type}: Client [${ip}:${req.socket.remotePort}] <> HTTP [${address}:${port}]` + (err ? ` <> Err [${err}]` : ""));
@@ -109,7 +110,7 @@ new WebSocketServer({ port: +webSocketPort }).on("connection", async (socket, re
 		.on("error", onChange(ChangeType.Error))
 		.on("clientError", console.error);
 
-	socket.on("close", onChange(ChangeType.Closed)).on("error", onChange(ChangeType.Error));
+	newSocket.on("close", onChange(ChangeType.Closed)).on("error", onChange(ChangeType.Error));
 });
 
 // Fix for docker
