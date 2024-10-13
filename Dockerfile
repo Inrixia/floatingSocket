@@ -1,16 +1,19 @@
 FROM node:current-alpine AS build
 
+# Make pnpm available
+RUN npm i -g pnpm
+
 # working directory for the build
-WORKDIR ${HOME}
+WORKDIR /build
 
 # Copy package configs into working Directory
-COPY ./package.json ./package-lock.json ./tsconfig.json ${HOME}/
+COPY ./package.json ./pnpm-lock.yaml ./tsconfig.json /build/
 
 # Install required packages
-RUN npm ci --omit-dev
+RUN pnpm i
 
 # Copy src files into Working Directory
-COPY ./src ${HOME}/src
+COPY ./src /build/src
 
 # Compile the project
 RUN npx tsc
@@ -21,11 +24,11 @@ FROM node:current-alpine AS release
 LABEL Description="Project for aggregating prometheus exporter metrics."
 
 # Create Directory for the Container
-WORKDIR /fp
+WORKDIR /fs
 
-COPY --from=build ${HOME}/node_modules node_modules
-COPY --from=build ${HOME}/dist dist
-COPY --from=build ${HOME}/package.json package.json
+COPY --from=build /build/node_modules node_modules
+COPY --from=build /build/dist dist
+COPY --from=build /build/package.json package.json
 
 # Runs on container start
 CMD node ./dist/sock.js
