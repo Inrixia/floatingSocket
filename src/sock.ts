@@ -98,7 +98,7 @@ new WebSocketServer({ port: +webSocketPort }).on("connection", async (socket, re
 			if (socket.readyState !== socket.OPEN) socket.terminate();
 			if (httpServer.listening) httpServer.close();
 		}
-		console.log(`${type}: Client [${ip}:${req.socket.remotePort}] <> HTTP [${address}:${port}] <> Err [${err}]`);
+		console.log(`${type}: Client [${ip}:${req.socket.remotePort}] <> HTTP [${address}:${port}]` + (err ? ` <> Err [${err}]` : ""));
 	};
 
 	httpServer
