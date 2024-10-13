@@ -53,6 +53,10 @@ enum ChangeType {
 const webSocketPort = process.env.WEB_SOCKET_PORT || 5000;
 new WebSocketServer({ port: +webSocketPort }).on("connection", async (socket, req) => {
 	const instance: string = await new Promise((res) => socket.once("message", (data) => res(data.toString())));
+	if (instances[instance]) {
+		instances[instance].socket = socket;
+		instances[instance].socket?.terminate();
+	}
 
 	const httpServer = createHttpServer((req, res) => {
 		try {
@@ -90,8 +94,6 @@ new WebSocketServer({ port: +webSocketPort }).on("connection", async (socket, re
 	const onChange = (type: ChangeType) => (err: Error) => {
 		const ip = req.headers["x-forwarded-for"]?.toString() ?? req.socket.remoteAddress;
 		if (type === ChangeType.Listening) {
-			// Ensure the instance is only connected once
-			// instances[instance]?.socket?.terminate(); // Dont connection thrash, just let it idle open to avoid client retries
 			instances[instance] = { ip, socket, target: `floatingsocket:${port}` };
 		} else {
 			delete instances[instance];
