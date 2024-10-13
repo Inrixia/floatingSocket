@@ -1,5 +1,5 @@
 import { createServer as createHttpServer, type Server } from "http";
-import { WebSocketServer, type WebSocket } from "ws";
+import { WebSocketServer, WebSocket } from "ws";
 
 type InstanceInfo = {
 	target: string;
@@ -98,7 +98,7 @@ new WebSocketServer({ port: +webSocketPort }).on("connection", async (newSocket,
 			instances[instance] = { ip, socket: newSocket, target: `floatingsocket:${port}` };
 		} else {
 			delete instances[instance];
-			newSocket.terminate();
+			if (newSocket.readyState === WebSocket.OPEN || newSocket.readyState === WebSocket.CONNECTING) newSocket.terminate();
 			if (httpServer.listening) httpServer.close();
 		}
 		console.log(`${type}: Client [${ip}:${req.socket.remotePort}] <> HTTP [${address}:${port}]` + (err ? ` <> Err [${err}]` : ""));
