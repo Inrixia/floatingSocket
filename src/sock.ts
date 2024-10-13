@@ -13,13 +13,13 @@ createHttpServer(async (req, res) => {
 			case "/targets": {
 				res.setHeader("Content-Type", "application/json");
 				const targets = [];
-				for (const instanceId in instances) {
-					const { target, ip } = instances[instanceId];
+				for (const instance in instances) {
+					const { target, ip } = instances[instance];
 					targets.push({
 						targets: [target],
 						labels: {
 							ip,
-							instanceId,
+							instance,
 						},
 					});
 				}
