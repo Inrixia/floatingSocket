@@ -4,6 +4,7 @@ import { WebSocketServer, WebSocket } from "ws";
 type InstanceInfo = {
 	target: string;
 	ip?: string;
+	id: string;
 	socket?: WebSocket;
 };
 const instances: Record<string, InstanceInfo> = {};
@@ -14,11 +15,12 @@ createHttpServer(async (req, res) => {
 				res.setHeader("Content-Type", "application/json");
 				const targets = [];
 				for (const instance in instances) {
-					const { target, ip } = instances[instance];
+					const { target, ip, id } = instances[instance];
 					targets.push({
 						targets: [target],
 						labels: {
 							ip,
+							id,
 							instance,
 						},
 					});
@@ -52,7 +54,9 @@ enum ChangeType {
 
 const webSocketPort = process.env.WEB_SOCKET_PORT || 5000;
 new WebSocketServer({ port: +webSocketPort }).on("connection", async (newSocket, req) => {
-	const instance: string = await new Promise((res) => newSocket.once("message", (data) => res(data.toString())));
+	const id: string = await new Promise((res) => newSocket.once("message", (data) => res(data.toString())));
+	const ip = req.headers["x-forwarded-for"]?.toString() ?? req.socket.remoteAddress;
+	const instance = `${id}:${ip}`;
 	if (instances[instance]?.socket) {
 		instances[instance].socket?.terminate();
 		instances[instance].socket = newSocket;
@@ -93,9 +97,8 @@ new WebSocketServer({ port: +webSocketPort }).on("connection", async (newSocket,
 
 	const { address, port } = serverAddress(httpServer);
 	const onChange = (type: ChangeType) => (err: Error) => {
-		const ip = req.headers["x-forwarded-for"]?.toString() ?? req.socket.remoteAddress;
 		if (type === ChangeType.Listening) {
-			instances[instance] = { ip, socket: newSocket, target: `floatingsocket:${port}` };
+			instances[instance] = { ip, id, socket: newSocket, target: `floatingsocket:${port}` };
 		} else {
 			delete instances[instance];
 			if (newSocket.readyState === WebSocket.OPEN || newSocket.readyState === WebSocket.CONNECTING) newSocket.terminate();
