@@ -1,11 +1,10 @@
 import { createServer as createHttpServer, type Server } from "http";
-import { WebSocketServer } from "ws";
-import { createHash } from "crypto";
+import { WebSocketServer, type WebSocket } from "ws";
 
 type InstanceInfo = {
-	instance: string;
-	instanceHash: string;
+	target: string;
 	ip?: string;
+	socket?: WebSocket;
 };
 const instances: Record<string, InstanceInfo> = {};
 createHttpServer(async (req, res) => {
@@ -14,10 +13,14 @@ createHttpServer(async (req, res) => {
 			case "/targets": {
 				res.setHeader("Content-Type", "application/json");
 				const targets = [];
-				for (const target in instances) {
+				for (const instanceId in instances) {
+					const { target, ip } = instances[instanceId];
 					targets.push({
 						targets: [target],
-						labels: instances[target],
+						labels: {
+							ip,
+							instanceId,
+						},
 					});
 				}
 				res.end(JSON.stringify(targets));
@@ -47,15 +50,10 @@ enum ChangeType {
 	Error = "Error",
 }
 
-const hashString = (str: string) => {
-	const hash = createHash("md5");
-	hash.update(str);
-	return hash.digest("hex");
-};
-
 const webSocketPort = process.env.WEB_SOCKET_PORT || 5000;
 new WebSocketServer({ port: +webSocketPort }).on("connection", async (socket, req) => {
 	const instance: string = await new Promise((res) => socket.once("message", (data) => res(data.toString())));
+
 	const httpServer = createHttpServer((req, res) => {
 		try {
 			if (req.url !== "/metrics" || !socket.OPEN) {
@@ -73,8 +71,10 @@ new WebSocketServer({ port: +webSocketPort }).on("connection", async (socket, re
 				}, 4000);
 				socket.once("message", (data) => {
 					clearTimeout(deadSocketTimeout);
-					res.setHeader("Content-Type", "text/plain; version=0.0.4; charset=utf-8");
-					res.end(data);
+					if (httpServer.listening) {
+						res.setHeader("Content-Type", "text/plain; version=0.0.4; charset=utf-8");
+						res.end(data);
+					}
 				});
 				socket.ping();
 			}
@@ -87,16 +87,23 @@ new WebSocketServer({ port: +webSocketPort }).on("connection", async (socket, re
 	}).listen(0);
 
 	const { address, port } = serverAddress(httpServer);
-	const close = () => {
-		if (socket.readyState !== socket.OPEN) socket.close();
-		if (httpServer.listening) httpServer.close();
-		delete instances[`floatingsocket:${port}`];
-	};
-	const onChange = (type: ChangeType) => () => {
-		const remoteAddress = req.headers["x-forwarded-for"]?.toString() ?? req.socket.remoteAddress;
-		if (type !== ChangeType.Listening) close();
-		else instances[`floatingsocket:${port}`] = { instance, ip: remoteAddress, instanceHash: hashString(instance) };
-		console.log(`${type}: Client [${remoteAddress}:${req.socket.remotePort}] <> HTTP [${address}:${port}]`);
+	const onChange = (type: ChangeType) => (err: Error) => {
+		const ip = req.headers["x-forwarded-for"]?.toString() ?? req.socket.remoteAddress;
+		if (type === ChangeType.Listening) {
+			// Ensure the instance is only connected once
+			instances[instance]?.socket?.terminate();
+			instances[instance] = { ip, socket, target: `floatingsocket:${port}` };
+		} else {
+			delete instances[instance];
+			try {
+				socket.terminate();
+			} catch {}
+			try {
+				httpServer.close();
+			} catch {}
+		}
+		console.log(`${type}: Client [${ip}:${req.socket.remotePort}] <> HTTP [${address}:${port}]`);
+		if (err) console.error(err);
 	};
 
 	httpServer
