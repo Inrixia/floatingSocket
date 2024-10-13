@@ -91,15 +91,14 @@ new WebSocketServer({ port: +webSocketPort }).on("connection", async (socket, re
 		const ip = req.headers["x-forwarded-for"]?.toString() ?? req.socket.remoteAddress;
 		if (type === ChangeType.Listening) {
 			// Ensure the instance is only connected once
-			instances[instance]?.socket?.terminate();
+			// instances[instance]?.socket?.terminate(); // Dont connection thrash, just let it idle open to avoid client retries
 			instances[instance] = { ip, socket, target: `floatingsocket:${port}` };
 		} else {
 			delete instances[instance];
 			if (socket.readyState !== socket.OPEN) socket.terminate();
 			if (httpServer.listening) httpServer.close();
 		}
-		console.log(`${type}: Client [${ip}:${req.socket.remotePort}] <> HTTP [${address}:${port}]`);
-		if (err) console.error(err);
+		console.log(`${type}: Client [${ip}:${req.socket.remotePort}] <> HTTP [${address}:${port}] <> Err [${err}]`);
 	};
 
 	httpServer
