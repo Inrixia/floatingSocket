@@ -1,119 +1,128 @@
-import { createServer as createHttpServer, type Server } from "http";
-import { WebSocketServer, WebSocket } from "ws";
+import { createServer as createHttpServer } from "http";
+import { WebSocket, WebSocketServer } from "ws";
 
 type InstanceInfo = {
-	target: string;
 	ip?: string;
 	id: string;
 	socket?: WebSocket;
+	isFetching?: boolean;
 };
 const instances: Record<string, InstanceInfo> = {};
+// A single central HTTP router handles both Service Discovery and Metrics proxying
 createHttpServer(async (req, res) => {
+	if (req.url === undefined) throw new Error("Invalid request.");
 	try {
-		switch (req.url) {
-			case "/targets": {
-				res.setHeader("Content-Type", "application/json");
-				const targets = [];
-				for (const instance in instances) {
-					const { target, ip, id } = instances[instance];
-					targets.push({
-						targets: [target],
-						labels: {
-							ip,
-							id,
-							instance,
-						},
-					});
-				}
-				res.end(JSON.stringify(targets));
-				break;
+		const url = new URL(req.url, `https://${req.headers.host || "localhost"}`);
+
+		// Service Discovery Endpoint
+		if (url.pathname === "/targets") {
+			res.setHeader("Content-Type", "application/json");
+			const targets = [];
+
+			for (const instance in instances) {
+				const { ip, id } = instances[instance];
+				targets.push({
+					// Route all Prometheus scrapes back to this exact server
+					targets: [req.headers.host || "floatingsocket"],
+					labels: {
+						// Instruct Prometheus to use a unique path for this specific client
+						__metrics_path__: `/metrics/${encodeURIComponent(instance)}`,
+						ip,
+						id,
+						instance,
+					},
+				});
 			}
-			case "/metrics":
-			default: {
-				res.statusCode = 404;
-				res.end("Not found");
-			}
+			res.end(JSON.stringify(targets));
+			return;
 		}
+
+		// Metrics Proxy Endpoint
+		if (url.pathname.startsWith("/metrics/")) {
+			const instance = decodeURIComponent(url.pathname.replace("/metrics/", ""));
+			const target = instances[instance];
+
+			if (!target || !target.socket || target.socket.readyState !== WebSocket.OPEN) {
+				res.statusCode = 404;
+				res.end("Not found or offline");
+				return;
+			}
+
+			// Concurrency Lock: Prevent multiple overlapping '.once' listeners on the same socket
+			if (target.isFetching) {
+				res.statusCode = 429;
+				res.end("Too Many Requests - Already fetching");
+				return;
+			}
+
+			target.isFetching = true;
+			const socket = target.socket;
+
+			const deadSocketTimeout = setTimeout(() => {
+				target.isFetching = false;
+				socket.terminate();
+				if (!res.closed) {
+					res.statusCode = 504;
+					res.end("Gateway Timeout");
+				}
+			}, 4000);
+
+			socket.once("message", (data) => {
+				clearTimeout(deadSocketTimeout);
+				target.isFetching = false;
+
+				if (!res.closed) {
+					res.setHeader("Content-Type", "text/plain; version=0.0.4; charset=utf-8");
+					res.end(data);
+				}
+			});
+
+			socket.ping();
+			return;
+		}
+
+		res.statusCode = 404;
+		res.end("Not found");
 	} catch (err) {
-		res.statusCode = 500;
-		res.end((<Error>err)?.message);
+		console.error(err);
+		if (!res.closed) {
+			res.statusCode = 500;
+			res.end((err as Error)?.message);
+		}
 	}
 }).listen(process.env.SERVICE_DISCOVERY_PORT || 80);
 
-const serverAddress = (httpServer: Server) => {
-	const address = httpServer.address();
-	if (address === null || typeof address === "string") throw new Error("Could not get address");
-	return address;
-};
-enum ChangeType {
-	Listening = "Listening",
-	Closed = "Closed",
-	Ended = "Ended",
-	Error = "Error",
-}
-
 const webSocketPort = process.env.WEB_SOCKET_PORT || 5000;
 new WebSocketServer({ port: +webSocketPort }).on("connection", async (newSocket, req) => {
-	const id: string = await new Promise((res) => newSocket.once("message", (data) => res(data.toString())));
-	const ip = req.headers["x-forwarded-for"]?.toString() ?? req.socket.remoteAddress;
-	const instance = `${id}:${ip}`;
-	if (instances[instance]?.socket) {
-		instances[instance].socket?.terminate();
-		instances[instance].socket = newSocket;
-	}
+	try {
+		// Basic timeout protection so broken connections don't leak un-resolved Promises
+		const id = await new Promise<string>((resolve, reject) => {
+			const timeout = setTimeout(() => reject(new Error("ID timeout")), 5000);
+			newSocket.once("message", (data) => {
+				clearTimeout(timeout);
+				resolve(data.toString());
+			});
+		});
 
-	const httpServer = createHttpServer((req, res) => {
-		const socket = instances[instance]?.socket ?? newSocket;
-		try {
-			if (req.url !== "/metrics" || !socket.OPEN) {
-				res.statusCode = 404;
-				if (!socket.OPEN) {
-					httpServer.close();
-					socket.close();
-				}
-			} else {
-				const deadSocketTimeout = setTimeout(() => {
-					res.statusCode = 504;
-					res.end();
-					httpServer.close();
-					socket.close();
-				}, 4000);
-				socket.once("message", (data) => {
-					clearTimeout(deadSocketTimeout);
-					if (httpServer.listening) {
-						res.setHeader("Content-Type", "text/plain; version=0.0.4; charset=utf-8");
-						res.end(data);
-					}
-				});
-				socket.ping();
-			}
-		} catch (err) {
-			if (!res.closed) {
-				res.statusCode = 500;
-				res.end((<Error>err)?.message);
-			}
+		const ip = req.headers["x-forwarded-for"]?.toString() ?? req.socket.remoteAddress;
+		const instance = `${id}:${ip}`;
+		if (instances[instance]?.socket) {
+			instances[instance].socket?.terminate();
 		}
-	}).listen(0);
+		instances[instance] = { ip, id, socket: newSocket };
+		console.log(`Connected: Client [${ip}:${req.socket.remotePort}] as ${instance}`);
 
-	const { address, port } = serverAddress(httpServer);
-	const onChange = (type: ChangeType) => (err: Error) => {
-		if (type === ChangeType.Listening) {
-			instances[instance] = { ip, id, socket: newSocket, target: `floatingsocket:${port}` };
-		} else {
-			delete instances[instance];
+		const onClose = (err?: Error) => {
+			// Only delete if the active socket matches the one closing (prevents race condition on reconnects)
+			if (instances[instance]?.socket === newSocket) delete instances[instance];
 			if (newSocket.readyState === WebSocket.OPEN || newSocket.readyState === WebSocket.CONNECTING) newSocket.terminate();
-			if (httpServer.listening) httpServer.close();
-		}
-		console.log(`${type}: Client [${ip}:${req.socket.remotePort}] <> HTTP [${address}:${port}]` + (err ? ` <> Err [${err}]` : ""));
-	};
+			console.warn(`Client socket [${ip}:${req.socket.remotePort}] closed` + (err ? ` <> Err [${err}]` : ""));
+		};
 
-	httpServer
-		.on("listening", onChange(ChangeType.Listening))
-		.on("close", onChange(ChangeType.Closed))
-		.on("error", onChange(ChangeType.Error))
-		.on("clientError", console.error);
-
-	newSocket.on("close", onChange(ChangeType.Closed)).on("error", onChange(ChangeType.Error));
+		newSocket.on("close", onClose).on("error", onClose);
+	} catch {
+		return newSocket.terminate();
+	}
 });
 
 // Fix for docker
