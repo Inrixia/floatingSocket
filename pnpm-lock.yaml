@@ -8,6 +8,9 @@ importers:
 
   .:
     dependencies:
+      '@inrixia/helpers':
+        specifier: ^3.21.2
+        version: 3.21.2
       ws:
         specifier: ^8.22.0
         version: 8.22.0
@@ -23,6 +26,9 @@ importers:
         version: 7.0.2
 
 packages:
+
+  '@inrixia/helpers@3.21.2':
+    resolution: {integrity: sha512-fNkC8dvvOoR9rODNL8Wia6Bzo7wLJz3GAzaLvGWrqKeunSGNwwmVBSFoM7ux6pA0H506GlnHaKJ5iC/r3dEz0Q==}
 
   '@types/node@26.6.3':
     resolution: {integrity: sha512-dsqMQQoeTLqu9wynDD00q573mNzso3IdQOAfHRJqLCcmCFPoGo9A1bDpUcv/9tnKpErQWv9uKeGfl37EIS02Yg==}
@@ -150,6 +156,10 @@ packages:
     cpu: [x64]
     os: [win32]
 
+  dequal@2.0.3:
+    resolution: {integrity: sha512-0je+qPKHEMohvfRTCEo3CrPG6cAzAYgmzKyxRiYSSDkS6eGJdyVJm7WaYA5ECaAD9wLB2T4EEeymA5aFVcYXCA==}
+    engines: {node: '>=6'}
+
   typescript@7.0.2:
     resolution: {integrity: sha512-8FYau96o3NKOhbjKi/qNvG/W5jhzxkbdm5sj9AbZ/5T5sWqn3hJgLfGx27sRKZWTvyzCP8dLRBTf5tBTSRVUNA==}
     engines: {node: '>=16.20.0'}
@@ -171,6 +181,10 @@ packages:
         optional: true
 
 snapshots:
+
+  '@inrixia/helpers@3.21.2':
+    dependencies:
+      dequal: 2.0.3
 
   '@types/node@26.6.3':
     dependencies:
@@ -239,6 +253,8 @@ snapshots:
 
   '@typescript/typescript-win32-x64@7.0.2':
     optional: true
+
+  dequal@2.0.3: {}
 
   typescript@7.0.2:
     optionalDependencies:

@@ -93,9 +93,21 @@ createHttpServer(async (req, res) => {
 	}
 }).listen(process.env.SERVICE_DISCOVERY_PORT || 80);
 
+// WebSocket
+
+// Rate Limiting
+const seenIps = new Set<string>();
+setInterval(seenIps.clear.bind(seenIps), 45000);
+
 const webSocketPort = process.env.WEB_SOCKET_PORT || 5000;
 new WebSocketServer({ port: +webSocketPort }).on("connection", async (newSocket, req) => {
 	try {
+		const ip = req.headers["x-forwarded-for"]?.toString() ?? req.socket.remoteAddress;
+
+		// Rate Limiting
+		if (ip === undefined || seenIps.has(ip)) return setTimeout(newSocket.terminate.bind(newSocket), 60000);
+		seenIps.add(ip);
+
 		// Basic timeout protection so broken connections don't leak un-resolved Promises
 		const id = await new Promise<string>((resolve, reject) => {
 			const timeout = setTimeout(() => reject(new Error("ID timeout")), 5000);
@@ -105,7 +117,6 @@ new WebSocketServer({ port: +webSocketPort }).on("connection", async (newSocket,
 			});
 		});
 
-		const ip = req.headers["x-forwarded-for"]?.toString() ?? req.socket.remoteAddress;
 		const instance = `${id}:${ip}`;
 		if (instances[instance]?.socket) instances[instance].socket?.terminate();
 		instances[instance] = { ip, id, socket: newSocket };
