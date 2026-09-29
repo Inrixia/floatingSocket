@@ -12,7 +12,7 @@ const instances: Record<string, InstanceInfo> = {};
 createHttpServer(async (req, res) => {
 	if (req.url === undefined) throw new Error("Invalid request.");
 	try {
-		const url = new URL(req.url, `https://${req.headers.host || "localhost"}`);
+		const url = new URL(req.url, `http://${req.headers.host || "localhost"}`);
 
 		// Service Discovery Endpoint
 		if (url.pathname === "/targets") {
@@ -26,7 +26,7 @@ createHttpServer(async (req, res) => {
 					targets: [req.headers.host || "floatingsocket"],
 					labels: {
 						// Instruct Prometheus to use a unique path for this specific client
-						__metrics_path__: `/metrics/${encodeURIComponent(instance)}`,
+						__metrics_path__: `/metrics/${instance}`,
 						ip,
 						id,
 						instance,
@@ -61,6 +61,7 @@ createHttpServer(async (req, res) => {
 			const deadSocketTimeout = setTimeout(() => {
 				target.isFetching = false;
 				socket.terminate();
+				console.warn(`Client socket [${target.id}] timeout`);
 				if (!res.closed) {
 					res.statusCode = 504;
 					res.end("Gateway Timeout");
@@ -106,9 +107,7 @@ new WebSocketServer({ port: +webSocketPort }).on("connection", async (newSocket,
 
 		const ip = req.headers["x-forwarded-for"]?.toString() ?? req.socket.remoteAddress;
 		const instance = `${id}:${ip}`;
-		if (instances[instance]?.socket) {
-			instances[instance].socket?.terminate();
-		}
+		if (instances[instance]?.socket) instances[instance].socket?.terminate();
 		instances[instance] = { ip, id, socket: newSocket };
 		console.log(`Connected: Client [${ip}:${req.socket.remotePort}] as ${instance}`);
 
